@@ -1,150 +1,173 @@
-/***********************************************************************************************
-** Program Name: Project1 (Langton Ant)
-** Author: Jeremy Einhorn
-** Date: July 7, 2017
-** Description: This is the main file.  The menu first pops up.  If the user hits 1, the Langton
-Ant begins.  The menu will pop up at the end to see if they want to play again or Quit.
-*************************************************************************************************/
+/*************************************************************************************
+ ** Program Name: Project1 (Langton Ant)
+ ** Author: Jeremy Einhorn
+ ** Date: July 7, 2017
+ ** Description: This is the main file.  Options are set and the Langton Ant begins.
+ **************************************************************************************/
 
-#include "menu.hpp"
 #include <iostream>
+#include"antPrint.hpp"
+#include"ant.hpp"
+#include"board.hpp"
+#include"input_validation.hpp"
+#include"range_limit.hpp"
+#include <cstdlib>
+#include <getopt.h>
 using std::cout;
 using std::cin;
 using std::endl;
+#ifdef linux
+#include <unistd.h>
+#include <sys/ioctl.h>
+#endif
+#ifdef WINDOWS
+#include <windows.h>
+#endif
+
+void sleep(int sleepMs) {
+#ifdef linux
+    usleep(sleepMs * 1000);
+#endif
+#ifdef WINDOWS
+    Sleep(sleepMs);
+#endif
+}
+
+void printHelp() {
+    std::cout <<
+        "--rsize <n>: set row size (max=80,min=2,default=20)\n"
+        "--csize <n>: set column size (max=80,min=2,default=50)\n"
+        "--steps <n>: steps the ant will take (default=200)\n"
+        "--delay <n>: delay between steps, in milliseconds (default=0)\n"
+        "--antx  <n>: ant starting X coordinate\n"
+        "--anty  <n>: ant starting Y coordinate\n"
+        "--debug:     step iteratively\n"
+        "--help:      show help\n";
+    exit(1);
+}
 
 
-int main()
-{
-	int choice = menu();
-	
-	//if the user wants to play.
-	//they can also play again at the end of the game
-	while (choice == 1)
-	{
-		//int variables to hold the user entered row size
-		//column size, the x coord of the ant and
-		//the y coord of the ant.  The accum variable
-		//keeps track of what step the ant is on
-		int row, col, step, rsize, csize, accum = 0;
+void clearScreen() {
+#ifdef WINDOWS
+    std::system("cls");
+#else
+    std::system ("clear");
+#endif
+}
 
-		cout << "First, please enter a positive integer from 2 to 80"
-			" for the row size." << endl;
-		//checks for positive integer
-		rsize = getUnsignedInt();
-		//user has to enter at least 2 rows and at most
-		//80 rows
-		while (!(isRange(rsize, 80, 2)))
-		{
-			cout << "Error. Out of range." << endl;
-			cout << "Please enter a positive integer from 2 to 80." << endl;
-			rsize = getUnsignedInt();
-		}
+void getWinSize(int *x, int *y){
+#ifdef linux
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    *x = w.ws_row - 1;
+    *y = w.ws_col - 1;
+#else // assert this works on Windows
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    int columns, rows;
 
-		cout << "Next, please enter a positive integer from 2 to 80"
-			" for the colmun size." << endl;
-		//checks for positive integer
-		csize = getUnsignedInt();
-		//the user has to enter at least 2 columns and at most
-		//80 columns
-		while (!(isRange(csize, 80, 2)))
-		{
-			cout << "Error. Out of range." << endl;
-			cout << "Please enter a positive integer from 2 to 80." << endl;
-			csize = getUnsignedInt();
-		}
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+    x = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+    y = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+#endif
+}
 
-		cout << "Please place the ant on the board by first entering it's x-coordinate."
-			"  Enter a positive integer from 0 to " << rsize - 1 << "." << endl;
-		//checks for positive integer
-		row = getUnsignedInt();
-		//user has to enter at least 0 and at most
-		//1 less than the row size
-		while (!(isRange(row, rsize - 1, 0)))
-		{
-			cout << "Error. Out of range." << endl;
-			cout << "Please enter a positive integer from 0 to " << rsize - 1;
-			cout << "." << endl;
-			row = getUnsignedInt();
-		}
+int main(int argc, char** argv) {
+    //int variables to hold the user entered row size
+    //column size, the x coord of the ant and
+    //the y coord of the ant.  The accum variable
+    //keeps track of what step the ant is on
 
-		cout << "Now please enter it's y-coordinate.  Enter a positive integer from 0"
-			" to " << csize - 1 << "." << endl;
-		//checks for positive integer
-		col = getUnsignedInt();
-		//user has to enter at least 0 and at most
-		//1 less than the column size
-		while (!(isRange(col, csize - 1, 0)))
-		{
-			cout << "Error. Out of range." << endl;
-			cout << "Please enter a positive integer from 0 to " << csize - 1;
-			cout << "." << endl;
-			col = getUnsignedInt();
-		}
+    int antx, anty, step, rsize, csize, debug, delay, accum = 0;
+    const char* const short_opts = "r:c:s:d:Dh";
+    const option long_opts[] = {
+        {"rsize" , required_argument , nullptr , 'r'} ,
+        {"csize" , required_argument , nullptr , 'c'} ,
+        {"steps" , required_argument , nullptr , 's'} ,
+        {"delay" , required_argument , nullptr , 'd'} ,
+        {"debug" , no_argument       , nullptr , 'D'} ,
+        {"help"  , no_argument       , nullptr , 'h'} ,
+        {nullptr , no_argument       , nullptr ,  0 }
+    };
+    while (true) { // parse arguments
+        const auto opt = getopt_long(argc, argv, short_opts, long_opts, nullptr);
+        if (opt == -1) break;
+        switch (opt) {
+            case 'r':
+                rsize = std::stoi(optarg);
+                break;
+            case 'c':
+                csize = std::stoi(optarg);
+                break;
+            case 's':
+                step = std::stoi(optarg);
+                break;
+            case 'd':
+                delay = std::stoi(optarg);
+                break;
+            case 'D':
+                debug = 1;
+                break;
+            case 'h':
+            case '?':
+            default:
+                printHelp();
+                break;
+        }
+    }
 
-		cout << "Please enter a positive integer form 0 to 200 for the steps"
-			" the ant will take." << endl;
-		//checks for positive integer
-		step = getUnsignedInt();
-		//user has to enter at least 1 step and at most
-		//200 steps
-		while (!(isRange(step, 200, 1)))
-		{
-			cout << "Error. Out of range." << endl;
-			cout << "Please enter a positive integer from 1 to 200." << endl;
-			step = getUnsignedInt();
-		}
+    if(!rsize || !csize) getWinSize(&rsize, &csize);
 
-		//dynamic allocation of a 2D array using the user entered
-		//row size and column size
-		char **arry = new char*[rsize];
-		for (int row = 0; row < rsize; row++)
-			arry[row] = new char[csize];
+    antx = rand() % rsize + 2;
+    anty = rand() % csize + 2;
 
-		//new Board and Ant objects using the 2D array,
-		//the row and column size and
-		//the ants first coords
-		Board *board = new Board(arry, rsize, csize);
-		Ant ant(board, row, col);
+    if(!step) step = 1000000;
 
-		//keeps going until the last step is reached
-		while (accum < step)
-		{
-			accum += 1;
+    //dynamic allocation of a 2D array using the user entered
+    //row size and column size
+    char **board_arr = new char*[rsize];
+    for (int row = 0; row < rsize; row++)
+        board_arr[row] = new char[csize];
 
-			//int variables to hold the ants coords before it moves
-			int arow = ant.getRow();
-			int acol = ant.getCol();
-			//uses the coords to move the ant
-			ant.moveAnt(arow, acol);
+    //new Board and Ant objects using the 2D array,
+    //the row and column size and
+    //the ants first coords
+    Board *board = new Board(board_arr, rsize, csize);
+    Ant ant(board, antx, anty);
 
-			//prints a board with an ant on it
-			printToScreen(board, ant);
+    //keeps going until the last step is reached
+    while (accum < step) {
+        accum += 1;
 
-			//int variables hold the ants updates coords
-			//these will be used to let the user know where
-			//exactly the ant is
-			int newRow = ant.getRow();
-			int newCol = ant.getCol();
+        //int variables to hold the ants coords before it moves
+        int arow = ant.getRow();
+        int acol = ant.getCol();
+        //uses the coords to move the ant
+        ant.moveAnt(arow, acol);
 
-			cout << "This is step " << accum << "." << endl;
-			cout << "The ant is at position " << newRow << ", "
-				<< newCol << endl;
-			cout << "Please hit enter for the next step." << endl;
+        //prints a board with an ant on it
+        clearScreen();
+        printToScreen(board, ant);
+        sleep(delay);
 
-			//user must hit enter to move onto the next step
-			cin.get();
-		}
+        //int variables hold the ants updates coords
+        //these will be used to let the user know where
+        //exactly the ant is
+        int newRow = ant.getRow();
+        int newCol = ant.getCol();
 
-		//frees the space used for the dynamically allocated 2D array
-		for (int row = 0; row < rsize; row++)
-			delete[] arry[row];
-		delete[] arry;
+        if(debug){
+            cout << "This is step " << accum << "." << endl;
+            cout << "The ant is at position " << newRow << ", "
+                << newCol << endl;
+            cout << "Please hit enter for the next step." << endl;
 
-		//the menu pops back up where the user can play again or quit
-		choice = menu();
-	}
-	
-	//if the user hits Quit on the menu, program terminates
-	if (choice == 2)
-		return 0;
+            //user must hit enter to move onto the next step
+            cin.get();
+        }
+    }
+
+    //frees the space used for the dynamically allocated 2D array
+    for (int row = 0; row < rsize; row++)
+        delete[] board_arr[row];
+    delete[] board_arr;
 }
